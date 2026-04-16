@@ -127,6 +127,42 @@ function log(message: string): void {
   console.error(`[agent-runner] ${message}`);
 }
 
+/**
+ * Validate transcript file for corruption.
+ * Returns true if valid, false if corrupted.
+ * On corruption, moves the file to .corrupted backup.
+ */
+function validateTranscript(transcriptPath: string, sessionId: string): boolean {
+  try {
+    const content = fs.readFileSync(transcriptPath, 'utf-8');
+    const lines = content.split('\n');
+    let corruptedLines = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      if (!line.startsWith('{')) {
+        log(`Transcript corruption detected at line ${i + 1}: does not start with {`);
+        corruptedLines++;
+      }
+    }
+
+    if (corruptedLines > 0) {
+      log(`Found ${corruptedLines} corrupted lines in transcript ${sessionId}`);
+      const backupPath = `${transcriptPath}.corrupted.${Date.now()}`;
+      fs.renameSync(transcriptPath, backupPath);
+      log(`Moved corrupted transcript to ${backupPath}`);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    log(`Error validating transcript: ${err instanceof Error ? err.message : String(err)}`);
+    return true;
+  }
+}
+
 function getSessionSummary(
   sessionId: string,
   transcriptPath: string,
@@ -413,9 +449,12 @@ async function runQuery(
   let resultCount = 0;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
-  const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
+  // Main group has the project root at /workspace/project; others get /workspace/global
+  const globalClaudeMdPath = containerInput.isMain
+    ? '/workspace/project/groups/global/CLAUDE.md'
+    : '/workspace/global/CLAUDE.md';
   let globalClaudeMd: string | undefined;
-  if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
+  if (fs.existsSync(globalClaudeMdPath)) {
     globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 
@@ -632,6 +671,19 @@ async function main(): Promise<void> {
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
   let sessionId = containerInput.sessionId;
+
+  // Validate transcript health if resuming a session
+  if (sessionId) {
+    const transcriptPath = path.join('/home/node/.claude/projects/-workspace-group', `${sessionId}.jsonl`);
+    if (fs.existsSync(transcriptPath)) {
+      const isValid = validateTranscript(transcriptPath, sessionId);
+      if (!isValid) {
+        log(`Transcript corruption detected, forcing fresh session`);
+        sessionId = undefined;
+      }
+    }
+  }
+
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
   // Clean up stale _close sentinel from previous container runs

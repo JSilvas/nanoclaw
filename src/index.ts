@@ -406,12 +406,12 @@ async function runAgent(
     if (output.status === 'error') {
       // Detect stale/corrupt session — clear it so the next retry starts fresh.
       // The session .jsonl can go missing after a crash mid-write, manual
-      // deletion, or disk-full. The existing backoff in group-queue.ts
-      // handles the retry; we just need to remove the broken session ID.
+      // deletion, or disk-full. Also catches tool_use_id corruption errors.
+      // The existing backoff in group-queue.ts handles the retry.
       const isStaleSession =
         sessionId &&
         output.error &&
-        /no conversation found|ENOENT.*\.jsonl|session.*not found/i.test(
+        /no conversation found|ENOENT.*\.jsonl|session.*not found|tool_use_id/i.test(
           output.error,
         );
 

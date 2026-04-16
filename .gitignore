@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .npm-cache/
+package-lock.json
 # Build output
 dist/
 
@@ -34,5 +35,8 @@ groups/global/*
 
 # Skills system (local per-installation state)
 .nanoclaw/
+
+# Claude Code local config
+.claude/
 
 agents-sdk-docs
